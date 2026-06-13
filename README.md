@@ -1,52 +1,62 @@
 # Forge Better Cards
 
-Forge Better Cards adds extra controls to Forge/A1111 Extra Networks cards, with
-per-card sets, local image support, and a small editor that stays out of the
-way until you need it.
+Forge Better Cards adds a small set of tools to Forge/A1111 Extra Networks
+cards: per-card sets, local image support, folder filters, and a lightweight
+editor.
 
 ## Screenshots
 
-![Card grid](./imgs/bettercardimg001.png)
+### Browse and filter
+
+![Card grid with folder filters](./imgs/bettercardimg010.png)
+
+### Card editor
 
 ![Better Cards editor](./imgs/bettercardimg006.png)
 
+### Add or replace preview image
+
+![Preview image picker](./imgs/bettercardimg012.png)
+
+### Preview lightbox
+
 ![Preview lightbox](./imgs/bettercardimg007.png)
 
-## What it does
+## Features
 
-- Adds a `BC` button on Extra Networks cards.
-- Lets each card store multiple sets.
-- Each set can have:
+- Adds a `BC` button to Extra Networks cards.
+- Stores multiple sets per card.
+- Each set can hold:
   - label
   - activation text
   - negative prompt
   - notes
   - weight
   - one or more images
-- Opens preview images from the metadata popup in a larger lightbox.
-- Supports drag-and-drop or upload for set images.
-- Lets each card use its own weight range and default value.
+- Lets you open preview images in a lightbox.
+- Lets you add or replace preview images from the editor.
+- Supports drag-and-drop and upload for set images.
+- Saves folder include/exclude filters per tab and can collapse or reopen the
+  folder strip.
+- Records usage metadata for Last Used / Most Used style sorting.
 - Can seed initial sets from Card Master metadata when available.
-- Supports sorting cards by usage: last used or most used.
 
-## How to use
+## How To Use
 
 1. Open an Extra Networks tab.
-2. Click `BC` on a card to open the Better Cards editor.
-3. Add or edit sets.
-4. Use the card navigation arrows to switch sets on the card itself.
+2. Click `BC` on a card to open the editor.
+3. Edit the set fields or add another set.
+4. Use the arrows on the card to switch sets.
 5. Click a card to apply the active set to the prompt.
-
-![Preview lightbox](imgs/bettercardimg010.png)
 
 ## Installation
 
 Clone this extension into the Forge `extensions/` folder, then restart the web
 UI.
 
-## Data storage
+## Data
 
-All card data is stored locally in:
+All saved card data is stored locally in:
 
 `data/better_cards.json`
 
@@ -62,6 +72,6 @@ Uploaded images are stored in:
 
 ## Notes
 
-- The extension keeps card identity by page, path, and name.
-- If a card has no saved Better Cards data yet, it starts with one default set.
+- Card identity is tracked by page, path, and name.
+- Cards without saved Better Cards data start with one default set.
 - Image URLs are limited to direct image links or the extension image endpoint.
