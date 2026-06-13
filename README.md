@@ -9,6 +9,7 @@ editor.
 ### Browse and filter
 
 ![Card grid with folder filters](imgs/bettercardimg010.png)
+![Card grid with folder filters](imgs/bettercardimg002.png)
 
 Use this area to browse cards, search by name, and narrow the list with folder
 buttons.
