@@ -8,7 +8,7 @@ editor.
 
 ### Browse and filter
 
-![Card grid with folder filters](./imgs/bettercardimg010.png)
+![Card grid with folder filters](imgs/bettercardimg010.png)
 
 Use this area to browse cards, search by name, and narrow the list with folder
 buttons.
@@ -21,7 +21,8 @@ buttons.
 
 ### Card editor
 
-![Better Cards editor](./imgs/bettercardimg006.png)
+![Better Cards editor](imgs/bettercardimg006.png)
+![Better Cards editor](imgs/bettercardimg008.png)
 
 Open this from the `BC` button on a card.
 
@@ -32,7 +33,7 @@ Open this from the `BC` button on a card.
 
 ### Add or replace preview image
 
-![Preview image picker](./imgs/bettercardimg012.png)
+![Preview image picker](imgs/bettercardimg012.png)
 
 Click the preview area to pick an image, or drop one in.
 
@@ -42,7 +43,7 @@ Click the preview area to pick an image, or drop one in.
 
 ### Preview lightbox
 
-![Preview lightbox](./imgs/bettercardimg007.png)
+![Preview lightbox](imgs/bettercardimg007.png)
 
 Click a preview image to open it larger.
 
