@@ -37,6 +37,8 @@ way until you need it.
 4. Use the card navigation arrows to switch sets on the card itself.
 5. Click a card to apply the active set to the prompt.
 
+![Preview lightbox](imgs/bettercardimg010.png)
+
 ## Installation
 
 Clone this extension into the Forge `extensions/` folder, then restart the web
