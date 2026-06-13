@@ -19,6 +19,7 @@ buttons.
 - The `Set` toggle shows or hides the extra set controls.
 - The card area keeps the normal Extra Networks layout, with Better Cards
   controls added on top.
+- Click once to include a folder, click again to exclude it, and click once more to clear the state.
 
 ### Card editor
 
