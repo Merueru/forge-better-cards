@@ -10,17 +10,46 @@ editor.
 
 ![Card grid with folder filters](./imgs/bettercardimg010.png)
 
+Use this area to browse cards, search by name, and narrow the list with folder
+buttons.
+
+- The folder strip can be collapsed or expanded.
+- Folder buttons can be included or excluded.
+- The `Set` toggle shows or hides the extra set controls.
+- The card area keeps the normal Extra Networks layout, with Better Cards
+  controls added on top.
+
 ### Card editor
 
 ![Better Cards editor](./imgs/bettercardimg006.png)
+
+Open this from the `BC` button on a card.
+
+- Edit the active set fields.
+- Add another set with the `+` button.
+- Rename, save, delete, or reset the current card data.
+- A card with no saved data starts with one default set.
 
 ### Add or replace preview image
 
 ![Preview image picker](./imgs/bettercardimg012.png)
 
+Click the preview area to pick an image, or drop one in.
+
+- Use this to replace the current preview image.
+- The same editor also supports dragging in an image file.
+- Uploaded images are stored locally by the extension.
+
 ### Preview lightbox
 
 ![Preview lightbox](./imgs/bettercardimg007.png)
+
+Click a preview image to open it larger.
+
+- Step through multiple images on the same set.
+- Zoom in, zoom out, or reset the view.
+- Add or remove images from inside the lightbox.
+- Drag to pan when zoomed in.
 
 ## Features
 
