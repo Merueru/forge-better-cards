@@ -1569,6 +1569,7 @@
     }
 
     async function handleBetterCardClick(event) {
+        if (event.target.closest(".forge-prompt-set-card, .forge-prompt-sets-add-card")) return;
         if (event.target.closest(".fbc-card-nav, .fbc-card-arrow, .fmb-model-badge, .fmb-type-menu")) return;
         if (event.target.closest("button, a, input, textarea, select, label, .button-row, .metadata-button, .edit-button, .copy-path-button")) return;
         const card = event.currentTarget;
