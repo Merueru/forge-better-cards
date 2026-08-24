@@ -371,7 +371,7 @@ def register_routes(demo, app: FastAPI):
         return JSONResponse({
             "ok": True,
             **default_weight_config(),
-            "auto_seed_from_cardmaster": True,
+            "auto_seed_from_cardmaster": False,
         })
 
     @app.get(f"{ENDPOINT_BASE}/card")
