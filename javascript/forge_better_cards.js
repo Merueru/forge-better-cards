@@ -45,6 +45,11 @@
         return typeof gradioApp === "function" ? gradioApp() : document;
     }
 
+    function hasCardMasterUi() {
+        return typeof window.cardClicked === "function" &&
+            Boolean(getApp().querySelector(".card-master-extra-ui, .card-master-inspector"));
+    }
+
     function globalFn(name) {
         if (typeof window[name] === "function") return window[name];
         try {
@@ -125,7 +130,7 @@
                 weight_max: 4,
                 weight_step: 0.05,
                 weight_default: 1,
-                auto_seed_from_cardmaster: true,
+                auto_seed_from_cardmaster: false,
             };
         }
 
@@ -382,7 +387,7 @@
             card._saved = !!data.found;
             card.sets = (card.sets || []).map((item) => normalizeSet(item, state.config));
 
-            if (!card.sets.length && state.config.auto_seed_from_cardmaster) {
+            if (!card.sets.length && state.config.auto_seed_from_cardmaster && hasCardMasterUi()) {
                 const seeded = await seedFromCardMaster(identity);
                 if (seeded.length) {
                     card.sets = seeded;
@@ -1350,6 +1355,8 @@
     }
 
     async function injectCardNavigation() {
+        setupSetToggles();
+        observeCards(getApp().querySelectorAll(".extra-network-cards .card[data-name]"));
         await loadConfig();
         await loadIndex(false);
 
@@ -1566,11 +1573,6 @@
         if (event.target.closest("button, a, input, textarea, select, label, .button-row, .metadata-button, .edit-button, .copy-path-button")) return;
         const card = event.currentTarget;
         const identity = resolveIdentity(identityFromCard(card));
-        const summary = state.index ? state.index[identity.key] : null;
-        if (!summary || !summary.has_card_data) {
-            recordUsage(identity);
-            return;
-        }
 
         event.preventDefault();
         event.stopPropagation();
