@@ -63,7 +63,6 @@ Click a preview image to open it larger.
   - activation text
   - negative prompt
   - notes
-  - weight
   - one or more images
 - Lets you open preview images in a lightbox.
 - Lets you add or replace preview images from the editor.
