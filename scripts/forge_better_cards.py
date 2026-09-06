@@ -26,11 +26,6 @@ MAX_SETS_PER_CARD = 64
 MAX_TEXT_LENGTH = 20000
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-DEFAULT_WEIGHT_MIN = -4.0
-DEFAULT_WEIGHT_MAX = 4.0
-DEFAULT_WEIGHT_STEP = 0.05
-DEFAULT_WEIGHT = 1.0
-
 _lock = threading.Lock()
 
 
@@ -43,21 +38,10 @@ def ensure_dirs():
     os.makedirs(IMAGE_DIR, exist_ok=True)
 
 
-def default_weight_config():
-    return {
-        "weight_min": DEFAULT_WEIGHT_MIN,
-        "weight_max": DEFAULT_WEIGHT_MAX,
-        "weight_step": DEFAULT_WEIGHT_STEP,
-        "weight_default": DEFAULT_WEIGHT,
-    }
-
-
 def default_card():
-    cfg = default_weight_config()
     return {
         "sets": [],
         "selected_set_id": "",
-        **cfg,
     }
 
 
@@ -211,7 +195,6 @@ def normalize_set(item):
         "activation_text": activation_text,
         "negative_prompt": negative_prompt,
         "notes": notes,
-        "weight": parse_float(item.get("weight"), default_weight_config()["weight_default"]),
         "image_url": image_url,
         "images": images,
         "active_image_index": active_image_index,
@@ -221,19 +204,6 @@ def normalize_set(item):
 def normalize_card(payload):
     if not isinstance(payload, dict):
         payload = {}
-
-    cfg = default_weight_config()
-    weight_min = parse_float(payload.get("weight_min"), cfg["weight_min"])
-    weight_max = parse_float(payload.get("weight_max"), cfg["weight_max"])
-    weight_step = parse_float(payload.get("weight_step"), cfg["weight_step"])
-    weight_default = parse_float(payload.get("weight_default"), cfg["weight_default"])
-
-    if weight_min == weight_max:
-        weight_max = weight_min + 1.0
-    if weight_min > weight_max:
-        weight_min, weight_max = weight_max, weight_min
-    if weight_step <= 0:
-        weight_step = cfg["weight_step"]
 
     sets = []
     seen = set()
@@ -255,10 +225,6 @@ def normalize_card(payload):
         "sort_name": clamp_text(payload.get("sort_name"), 512).strip(),
         "sets": sets,
         "selected_set_id": selected_set_id,
-        "weight_min": weight_min,
-        "weight_max": weight_max,
-        "weight_step": weight_step,
-        "weight_default": weight_default,
         "updated_at": now_iso(),
     }
 
@@ -360,6 +326,23 @@ def ensure_storage_file():
     ensure_dirs()
     if not os.path.exists(CARDS_PATH):
         write_data({"cards": {}})
+        return
+
+    try:
+        with open(CARDS_PATH, "r", encoding="utf-8") as f:
+            raw_cards = json.load(f).get("cards", {})
+        has_legacy_weight = any(
+            isinstance(card, dict) and (
+                any(key.startswith("weight_") for key in card) or
+                any(isinstance(item, dict) and "weight" in item for item in card.get("sets", []))
+            )
+            for card in raw_cards.values()
+        ) if isinstance(raw_cards, dict) else False
+    except Exception:
+        has_legacy_weight = False
+
+    if has_legacy_weight:
+        write_data(read_data())
 
 
 def register_routes(demo, app: FastAPI):
@@ -370,8 +353,7 @@ def register_routes(demo, app: FastAPI):
     async def get_config():
         return JSONResponse({
             "ok": True,
-            **default_weight_config(),
-            "auto_seed_from_cardmaster": False,
+            "auto_seed_from_cardmaster": True,
         })
 
     @app.get(f"{ENDPOINT_BASE}/card")
