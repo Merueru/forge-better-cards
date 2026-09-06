@@ -77,8 +77,7 @@
         return JSON.parse(JSON.stringify(card || {}));
     }
 
-    function normalizeSet(set, config) {
-        const fallbackWeight = config ? config.weight_default : 1;
+    function normalizeSet(set) {
         let images = Array.isArray(set && set.images) ? set.images.filter(Boolean).map(String) : [];
         const legacyImage = set && set.image_url ? String(set.image_url) : "";
         if (legacyImage && !images.includes(legacyImage)) images.unshift(legacyImage);
@@ -91,7 +90,6 @@
             activation_text: set && set.activation_text ? String(set.activation_text) : "",
             negative_prompt: set && set.negative_prompt ? String(set.negative_prompt) : "",
             notes: set && set.notes ? String(set.notes) : "",
-            weight: Number.isFinite(Number(set && set.weight)) ? Number(set.weight) : fallbackWeight,
             image_url: images.length ? images[activeImageIndex] : legacyImage,
             images,
             active_image_index: activeImageIndex,
@@ -99,7 +97,6 @@
     }
 
     function defaultCard(identity) {
-        const cfg = state.config || {};
         return {
             page: identity ? identity.page : "",
             name: identity ? identity.name : "",
@@ -107,10 +104,6 @@
             sort_name: identity ? identity.sortName : "",
             sets: [],
             selected_set_id: "",
-            weight_min: Number.isFinite(Number(cfg.weight_min)) ? Number(cfg.weight_min) : -4,
-            weight_max: Number.isFinite(Number(cfg.weight_max)) ? Number(cfg.weight_max) : 4,
-            weight_step: Number.isFinite(Number(cfg.weight_step)) ? Number(cfg.weight_step) : 0.05,
-            weight_default: Number.isFinite(Number(cfg.weight_default)) ? Number(cfg.weight_default) : 1,
             _saved: false,
         };
     }
@@ -125,13 +118,7 @@
             state.config = data;
         } catch (error) {
             console.warn("[ForgeBetterCards] Config unavailable", error);
-            state.config = {
-                weight_min: -4,
-                weight_max: 4,
-                weight_step: 0.05,
-                weight_default: 1,
-                auto_seed_from_cardmaster: false,
-            };
+            state.config = {auto_seed_from_cardmaster: true};
         }
 
         return state.config;
@@ -385,7 +372,7 @@
 
             const card = Object.assign(defaultCard(identity), data.card || {});
             card._saved = !!data.found;
-            card.sets = (card.sets || []).map((item) => normalizeSet(item, state.config));
+            card.sets = (card.sets || []).map((item) => normalizeSet(item));
 
             if (!card.sets.length && state.config.auto_seed_from_cardmaster && hasCardMasterUi()) {
                 const seeded = await seedFromCardMaster(identity);
@@ -399,10 +386,9 @@
                 const preview = identity.card ? identity.card.querySelector("img.preview, img") : null;
                 const set = normalizeSet({
                     label: "Set 1",
-                    weight: card.weight_default,
                     image_url: preview ? preview.src : "",
                     images: preview && preview.src ? [preview.src] : [],
-                }, state.config);
+                });
                 card.sets = [set];
                 card.selected_set_id = set.id;
             }
@@ -437,8 +423,6 @@
             const activationText = typeof info["activation text"] === "string" ? info["activation text"] : "";
             const negativePrompt = typeof info["negative prompt"] === "string" ? info["negative prompt"] : "";
             const notes = typeof info.notes === "string" ? info.notes : "";
-            const preferredWeight = optionalNumber(info["preferred weight"]);
-            const weight = Number.isFinite(preferredWeight) ? preferredWeight : 1;
             const sections = splitActivationSections(activationText);
             const preview = identity.card.querySelector("img.preview, img");
             return sections.map((section, index) => normalizeSet({
@@ -446,10 +430,9 @@
                 activation_text: section,
                 negative_prompt: negativePrompt,
                 notes,
-                weight,
                 image_url: preview ? preview.src : "",
                 images: preview && preview.src ? [preview.src] : [],
-            }, state.config));
+            }));
         } catch (error) {
             return [];
         }
@@ -555,7 +538,7 @@
         if (!response.ok || !data.ok) throw new Error(data.error || "Could not save Better Card data");
 
         const saved = Object.assign({}, data.card, {_saved: true});
-        saved.sets = (saved.sets || []).map((item) => normalizeSet(item, state.config));
+        saved.sets = (saved.sets || []).map((item) => normalizeSet(item));
         return saved;
     }
 
@@ -755,8 +738,6 @@
                 negative: null,
                 notes: null,
                 description: findField(editor, ["description"], "textarea"),
-                weightNumber: null,
-                weightRange: null,
             };
             return editor._fbcControlsCache;
         }
@@ -766,8 +747,6 @@
             negative: findField(editor, ["negative prompt"], "textarea, input[type='text']"),
             notes: findField(editor, ["notes"], "textarea, input[type='text']"),
             description: findField(editor, ["description"], "textarea"),
-            weightNumber: findField(editor, ["preferred weight"], "input[type='number']"),
-            weightRange: findField(editor, ["preferred weight"], "input[type='range']"),
         };
         return editor._fbcControlsCache;
     }
@@ -789,16 +768,6 @@
         if (controls.negative) set.negative_prompt = controls.negative.value || "";
         if (controls.notes) set.notes = controls.notes.value || "";
 
-        const weightSource = controls.weightNumber || controls.weightRange;
-        const weight = Number(weightSource ? weightSource.value : set.weight);
-        if (Number.isFinite(weight)) set.weight = weight;
-    }
-
-    function editorWeightValue(editor, fallback) {
-        const controls = getEditorControls(editor);
-        const source = controls.weightNumber || controls.weightRange;
-        const value = optionalNumber(source ? source.value : null);
-        return Number.isFinite(value) ? value : fallback;
     }
 
     function initializeUnsavedSetFromEditor(editor, card) {
@@ -810,10 +779,6 @@
         if (!set.activation_text && controls.activation) set.activation_text = controls.activation.value || "";
         if (!set.negative_prompt && controls.negative) set.negative_prompt = controls.negative.value || "";
         if (!set.notes && controls.notes) set.notes = controls.notes.value || "";
-
-        const weightSource = controls.weightNumber || controls.weightRange;
-        const weight = Number(weightSource ? weightSource.value : set.weight);
-        if (Number.isFinite(weight)) set.weight = weight;
 
         if (!set.image_url) {
             const src = editorPreviewSource(editor);
@@ -853,9 +818,6 @@
             setFieldValue(controls.activation, set.activation_text);
             setFieldValue(controls.negative, set.negative_prompt);
             setFieldValue(controls.notes, set.notes);
-            setFieldValue(controls.weightNumber, set.weight);
-            setFieldValue(controls.weightRange, set.weight);
-            configureWeightRange(controls, card);
             updateEditorPreview(editor, set);
         });
         setTimeout(() => {
@@ -868,29 +830,14 @@
         if (!set) return false;
         const controls = getEditorControls(editor);
         const active = document.activeElement;
-        const controlled = [controls.activation, controls.negative, controls.notes, controls.weightNumber, controls.weightRange].filter(Boolean);
+        const controlled = [controls.activation, controls.negative, controls.notes].filter(Boolean);
         if (controlled.includes(active)) return false;
-
-        const expectedWeight = Number(set.weight);
-        const numberMismatch = controls.weightNumber && Number(controls.weightNumber.value) !== expectedWeight;
-        const rangeMismatch = controls.weightRange && Number(controls.weightRange.value) !== expectedWeight;
 
         return (
             (controls.activation && controls.activation.value !== (set.activation_text || "")) ||
             (controls.negative && controls.negative.value !== (set.negative_prompt || "")) ||
-            (controls.notes && controls.notes.value !== (set.notes || "")) ||
-            numberMismatch ||
-            rangeMismatch
+            (controls.notes && controls.notes.value !== (set.notes || ""))
         );
-    }
-
-    function configureWeightRange(controls, card) {
-        [controls.weightNumber, controls.weightRange].forEach((field) => {
-            if (!field) return;
-            field.min = String(card.weight_min);
-            field.max = String(card.weight_max);
-            field.step = String(card.weight_step);
-        });
     }
 
     function updateEditorPreview(editor, set) {
@@ -1004,16 +951,13 @@
             await runEditorAction(host, async () => {
                 const activeCard = contextCard();
                 collectEditorSet(editor, activeCard);
-                const current = selectedSet(activeCard);
-                const fallbackWeight = current && Number.isFinite(Number(current.weight)) ? Number(current.weight) : activeCard.weight_default;
                 const set = normalizeSet({
                     label: `Set ${activeCard.sets.length + 1}`,
                     activation_text: "",
                     negative_prompt: "",
                     notes: "",
-                    weight: editorWeightValue(editor, fallbackWeight),
                     image_url: "",
-                }, state.config);
+                });
                     activeCard.sets.push(set);
                     activeCard.selected_set_id = set.id;
                     hydrateEditorSet(editor, activeCard);
@@ -1138,8 +1082,6 @@
                 controls.activation,
                 controls.negative,
                 controls.notes,
-                controls.weightNumber,
-                controls.weightRange,
             ].includes(event.target);
             if (!controlled) return;
 
@@ -1625,11 +1567,32 @@
         return `${tabname}:${negative ? "neg" : "pos"}:${identity.key}`;
     }
 
+    function captureNativeLoraToken(card) {
+        if (!card || typeof card.onclick !== "function" || typeof window.cardClicked !== "function") return "";
+
+        const nativeCardClicked = window.cardClicked;
+        let nativePrompt = "";
+        window.cardClicked = (_tabname, textToAdd) => {
+            nativePrompt = typeof textToAdd === "string" ? textToAdd : "";
+        };
+
+        try {
+            card.onclick.call(card, new MouseEvent("click", {bubbles: true, cancelable: true}));
+        } catch (error) {
+            console.warn("[ForgeBetterCards] Could not read Native LoRA prompt", error);
+        } finally {
+            window.cardClicked = nativeCardClicked;
+        }
+
+        const match = nativePrompt.match(/<lora:[^>]+>/i);
+        return match ? match[0] : "";
+    }
+
     function buildSetPromptTokens(identity, set) {
         const tokens = [];
         if (identity.page === "lora" || identity.page === "lycoris") {
-            const weight = Number.isFinite(Number(set.weight)) ? Number(set.weight) : 1;
-            tokens.push(`<lora:${identity.name}:${weight}>`);
+            const nativeToken = captureNativeLoraToken(identity.card);
+            tokens.push(nativeToken || `<lora:${identity.name}:1>`);
         }
         splitTags(set.activation_text).forEach((tag) => tokens.push(tag));
         return tokens;
@@ -1640,7 +1603,9 @@
         const wanted = (token || "").trim();
         if (!trimmed || !wanted) return false;
         if (/^<lora:/i.test(wanted) && (identity.page === "lora" || identity.page === "lycoris")) {
-            return new RegExp(`^<lora:${escapeRegExp(identity.name)}:[^>]+>$`, "i").test(trimmed);
+            const match = wanted.match(/^<lora:([^:>]+):/i);
+            const name = match && match[1];
+            return !!name && new RegExp(`^<lora:${escapeRegExp(name)}:[^>]+>$`, "i").test(trimmed);
         }
         return trimmed.toLowerCase() === wanted.toLowerCase();
     }
