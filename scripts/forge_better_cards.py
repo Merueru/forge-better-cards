@@ -6,7 +6,9 @@ import tempfile
 import threading
 import time
 import uuid
+from copy import deepcopy
 from datetime import datetime
+from PIL import Image, ImageOps
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
@@ -18,7 +20,10 @@ from modules import script_callbacks
 EXTENSION_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA_DIR = os.path.join(EXTENSION_DIR, "data")
 IMAGE_DIR = os.path.join(DATA_DIR, "images")
+THUMB_DIR = os.path.join(IMAGE_DIR, ".thumbs")
 CARDS_PATH = os.path.join(DATA_DIR, "better_cards.json")
+BACKUP_DIR = os.path.join(DATA_DIR, "backup")
+BACKUP_PATH = os.path.join(BACKUP_DIR, "better_cards.json")
 ENDPOINT_BASE = "/forge-better-cards"
 
 MAX_CARDS = 100000
@@ -26,7 +31,13 @@ MAX_SETS_PER_CARD = 64
 MAX_TEXT_LENGTH = 20000
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+LORA_EXTENSIONS = {".pt", ".ckpt", ".safetensors"}
+THUMBNAIL_SIZE = 512
+BACKUP_INTERVAL_SECONDS = 10 * 60
+MISSING_LORA_CONFIRM_SECONDS = 10
 _lock = threading.Lock()
+_thumbnail_lock = threading.Lock()
+_missing_lora_since = {}
 
 
 def now_iso():
@@ -275,8 +286,41 @@ def read_data():
     }
 
 
-def write_data(data):
+def backup_current_data(force=False):
+    if not os.path.isfile(CARDS_PATH):
+        return False
+    if not force and os.path.isfile(BACKUP_PATH):
+        if time.time() - os.path.getmtime(BACKUP_PATH) < BACKUP_INTERVAL_SECONDS:
+            return False
+
+    with open(CARDS_PATH, "r", encoding="utf-8") as source:
+        current = json.load(source)
+    if not isinstance(current, dict) or not isinstance(current.get("cards", {}), dict):
+        raise ValueError("Current Better Cards data is not a valid card database")
+
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix="better-cards-backup-", suffix=".json", dir=BACKUP_DIR)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as target:
+            json.dump(current, target, indent=2, ensure_ascii=False)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temp_path, BACKUP_PATH)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    return True
+
+
+def write_data(data, force_backup=False):
     ensure_dirs()
+    try:
+        backup_current_data(force=force_backup)
+    except Exception as exc:
+        print(f"[ForgeBetterCards] Failed to create rolling backup: {exc}")
+        if force_backup:
+            raise RuntimeError("Could not create a required Better Cards backup") from exc
+
     serializable = {
         "version": 1,
         "cards": data.get("cards", {}),
@@ -297,6 +341,130 @@ def write_data(data):
                 pass
 
     return serializable
+
+
+def lora_allowed_directories():
+    from modules import shared
+
+    return [os.fspath(path) for path in [shared.cmd_opts.lora_dir, *shared.cmd_opts.lora_dirs] if path]
+
+
+def path_is_within(path, root):
+    candidate = os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(path))))
+    parent = os.path.normcase(os.path.realpath(os.path.abspath(os.fspath(root))))
+    try:
+        return os.path.commonpath([candidate, parent]) == parent
+    except ValueError:
+        return False
+
+
+def validate_lora_model_path(filename, allowed_dirs):
+    candidate = os.path.abspath(os.fspath(filename))
+    if not os.path.isfile(candidate):
+        raise FileNotFoundError("LoRA file not found")
+    if os.path.islink(candidate) or os.path.realpath(candidate) != candidate:
+        raise ValueError("Refusing to delete a symlinked LoRA file")
+    if os.path.splitext(candidate)[1].lower() not in LORA_EXTENSIONS:
+        raise ValueError("File is not a supported LoRA model")
+    if not any(path_is_within(candidate, root) for root in allowed_dirs):
+        raise ValueError("LoRA file is outside Forge's configured LoRA directories")
+    return candidate
+
+
+def resolve_lora_model_path(name, expected_path=""):
+    import networks
+
+    network_on_disk = networks.available_networks.get(name)
+    if network_on_disk is None:
+        raise FileNotFoundError("LoRA is no longer available in Forge")
+
+    candidate = validate_lora_model_path(network_on_disk.filename, lora_allowed_directories())
+    if expected_path and os.path.normcase(os.path.abspath(expected_path)) != os.path.normcase(candidate):
+        raise ValueError("LoRA card path changed; refresh the LoRA list and try again")
+    return candidate
+
+
+def lora_card_file_exists(card):
+    path = clamp_text(card.get("sort_path"), 2000).strip()
+    if path and os.path.isfile(path):
+        return True
+
+    names = {
+        normalize_identity_value(card.get("name")),
+        normalize_identity_value(os.path.splitext(clamp_text(card.get("sort_name"), 512))[0]),
+    }
+    names.discard("")
+    if not names:
+        return False
+    try:
+        import networks
+
+        for network_name, network_on_disk in networks.available_networks.items():
+            network_names = {
+                normalize_identity_value(network_name),
+                normalize_identity_value(os.path.splitext(os.path.basename(network_on_disk.filename))[0]),
+            }
+            if names.intersection(network_names) and os.path.isfile(network_on_disk.filename):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def confirmed_missing_lora_keys(data, now=None, allowed_dirs=None):
+    current_time = time.monotonic() if now is None else float(now)
+    roots = lora_allowed_directories() if allowed_dirs is None else allowed_dirs
+    active_keys = set()
+    confirmed = []
+
+    for key, card in data.get("cards", {}).items():
+        if not isinstance(card, dict) or normalize_identity_value(card.get("page")) != "lora":
+            _missing_lora_since.pop(key, None)
+            continue
+
+        path = clamp_text(card.get("sort_path"), 2000).strip()
+        if not path or os.path.splitext(path)[1].lower() not in LORA_EXTENSIONS:
+            _missing_lora_since.pop(key, None)
+            continue
+        matching_roots = [root for root in roots if path_is_within(path, root)]
+        if not matching_roots or not any(os.path.isdir(root) for root in matching_roots):
+            _missing_lora_since.pop(key, None)
+            continue
+
+        active_keys.add(key)
+        if lora_card_file_exists(card):
+            _missing_lora_since.pop(key, None)
+            continue
+
+        first_seen = _missing_lora_since.setdefault(key, current_time)
+        if current_time - first_seen >= MISSING_LORA_CONFIRM_SECONDS:
+            confirmed.append(key)
+
+    for key in list(_missing_lora_since):
+        if key not in active_keys:
+            _missing_lora_since.pop(key, None)
+    return confirmed
+
+
+def reconcile_missing_loras(data):
+    missing_keys = confirmed_missing_lora_keys(data)
+    if not missing_keys:
+        return data, []
+
+    cleaned = deepcopy(data)
+    for key in missing_keys:
+        cleaned.get("cards", {}).pop(key, None)
+        cleaned.get("usage", {}).pop(key, None)
+
+    try:
+        cleaned = write_data(cleaned, force_backup=True)
+    except Exception as exc:
+        print(f"[ForgeBetterCards] Skipped missing LoRA cleanup because backup failed: {exc}")
+        return data, []
+
+    for key in missing_keys:
+        _missing_lora_since.pop(key, None)
+    return cleaned, missing_keys
 
 
 def safe_image_filename(original_name):
@@ -320,6 +488,45 @@ def image_extension_from_content(content):
     if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
         return ".webp"
     return ""
+
+
+def thumbnail_cache_path(source_path, size):
+    source_name = os.path.basename(source_path)
+    source_ext = os.path.splitext(source_name)[1].lower()
+    output_ext = ".png" if source_ext in {".png", ".gif"} else ".jpg"
+    return os.path.join(THUMB_DIR, f"{size}-{source_name}{output_ext}")
+
+
+def create_thumbnail(source_path, size):
+    cache_path = thumbnail_cache_path(source_path, size)
+    if os.path.isfile(cache_path) and os.path.getmtime(cache_path) >= os.path.getmtime(source_path):
+        return cache_path
+
+    os.makedirs(THUMB_DIR, exist_ok=True)
+    temp_fd, temp_path = tempfile.mkstemp(prefix="thumb-", suffix=os.path.splitext(cache_path)[1], dir=THUMB_DIR)
+    os.close(temp_fd)
+    try:
+        with Image.open(source_path) as source:
+            image = ImageOps.exif_transpose(source)
+            image = ImageOps.fit(
+                image,
+                (size, round(size * 1.5)),
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            if cache_path.endswith(".png"):
+                if image.mode not in {"L", "LA", "P", "RGB", "RGBA"}:
+                    image = image.convert("RGBA")
+                image.save(temp_path, format="PNG", optimize=True)
+            else:
+                if image.mode not in {"L", "RGB"}:
+                    image = image.convert("RGB")
+                image.save(temp_path, format="JPEG", quality=82, optimize=True)
+        os.replace(temp_path, cache_path)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+    return cache_path
 
 
 def ensure_storage_file():
@@ -375,6 +582,7 @@ def register_routes(demo, app: FastAPI):
         try:
             with _lock:
                 data = read_data()
+                data, removed_missing_loras = reconcile_missing_loras(data)
                 cards = {
                     key: card_summary_with_usage(card, data.get("usage", {}).get(key))
                     for key, card in data["cards"].items()
@@ -382,7 +590,12 @@ def register_routes(demo, app: FastAPI):
                 for key, usage in data.get("usage", {}).items():
                     if key not in cards:
                         cards[key] = card_summary_with_usage({}, usage)
-            return JSONResponse({"ok": True, "cards": cards, "updated_at": data.get("updated_at")})
+            return JSONResponse({
+                "ok": True,
+                "cards": cards,
+                "updated_at": data.get("updated_at"),
+                "removed_missing_loras": len(removed_missing_loras),
+            })
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
@@ -448,6 +661,83 @@ def register_routes(demo, app: FastAPI):
             print(f"[ForgeBetterCards] Failed to reset card: {exc}")
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
+    @app.delete(f"{ENDPOINT_BASE}/lora")
+    async def delete_lora(request: Request):
+        model_deleted = False
+        try:
+            payload = await request.json()
+            key = normalize_key(payload.get("key", ""))
+            page = clamp_text(payload.get("page"), 80).strip().lower()
+            name = clamp_text(payload.get("name"), 512).strip()
+            sort_path = clamp_text(payload.get("sort_path"), 2000).strip()
+            sort_name = clamp_text(payload.get("sort_name"), 512).strip()
+            if page != "lora" or not name or not sort_path:
+                raise ValueError("Delete is only available for a current LoRA card")
+
+            model_path = resolve_lora_model_path(name, expected_path=sort_path)
+            delete_mode = payload.get("delete_mode", "model")
+            if delete_mode not in ("model", "files"):
+                raise ValueError("Unknown delete mode")
+            companion_paths = []
+            if delete_mode == "files":
+                stem = os.path.splitext(model_path)[0]
+                shared_stem = any(
+                    os.path.isfile(stem + extension)
+                    and os.path.normcase(stem + extension) != os.path.normcase(model_path)
+                    for extension in LORA_EXTENSIONS
+                )
+                if not shared_stem:
+                    companion = stem + ".json"
+                    if os.path.isfile(companion):
+                        if os.path.islink(companion) or os.path.normcase(os.path.realpath(companion)) != os.path.normcase(os.path.abspath(companion)):
+                            raise ValueError("Cannot delete linked metadata")
+                        companion_paths.append(companion)
+            with _lock:
+                data = read_data()
+                actual_key = key if key in data.get("cards", {}) else ""
+                if not actual_key:
+                    actual_key, _card = find_card_by_identity(data, page, sort_path, sort_name, name)
+
+                if os.path.isfile(CARDS_PATH):
+                    try:
+                        backup_current_data(force=True)
+                    except Exception as exc:
+                        raise RuntimeError("Could not create a required Better Cards backup") from exc
+
+                os.remove(model_path)
+                model_deleted = True
+
+                changed = False
+                keys_to_remove = {value for value in (key, actual_key) if value}
+                for card_key in keys_to_remove:
+                    if data.get("cards", {}).pop(card_key, None) is not None:
+                        changed = True
+                    if data.get("usage", {}).pop(card_key, None) is not None:
+                        changed = True
+                    _missing_lora_since.pop(card_key, None)
+                if changed:
+                    data = write_data(data)
+                for companion in companion_paths:
+                    os.remove(companion)
+
+            return JSONResponse({
+                "ok": True,
+                "key": actual_key or key,
+                "name": name,
+                "better_cards_removed": changed,
+                "images_kept": True,
+                "forge_metadata_kept": not bool(companion_paths),
+                "updated_at": data.get("updated_at"),
+            })
+        except (FileNotFoundError, ValueError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc), "model_deleted": model_deleted}, status_code=400)
+        except PermissionError as exc:
+            print(f"[ForgeBetterCards] LoRA delete permission denied: {exc}")
+            return JSONResponse({"ok": False, "error": "Permission denied while deleting the LoRA file", "model_deleted": model_deleted}, status_code=403)
+        except Exception as exc:
+            print(f"[ForgeBetterCards] Failed to delete LoRA: {exc}")
+            return JSONResponse({"ok": False, "error": "Could not delete the LoRA safely", "model_deleted": model_deleted}, status_code=500)
+
     @app.post(f"{ENDPOINT_BASE}/upload-image")
     async def upload_image(request: Request):
         try:
@@ -482,13 +772,19 @@ def register_routes(demo, app: FastAPI):
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
     @app.get(f"{ENDPOINT_BASE}/image/{{filename}}")
-    async def get_image(filename: str):
+    def get_image(filename: str, size: int = 0):
         safe_name = os.path.basename(filename)
         path = os.path.join(IMAGE_DIR, safe_name)
         if not os.path.isfile(path):
             return JSONResponse({"ok": False, "error": "Image not found"}, status_code=404)
 
         media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        return FileResponse(path, media_type=media_type)
+        headers = {"Cache-Control": "public, max-age=86400"}
+        if size == THUMBNAIL_SIZE:
+            with _thumbnail_lock:
+                thumb_path = create_thumbnail(path, size)
+            thumb_type = mimetypes.guess_type(thumb_path)[0] or "image/jpeg"
+            return FileResponse(thumb_path, media_type=thumb_type, headers=headers)
+        return FileResponse(path, media_type=media_type, headers=headers)
 
 script_callbacks.on_app_started(register_routes)
