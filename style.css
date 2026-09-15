@@ -1,3 +1,23 @@
+.fbc-delete-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483647;
+    max-width: min(560px, calc(100vw - 32px));
+    box-sizing: border-box;
+    padding: 12px 18px;
+    border: 1px solid #4ade8080;
+    border-radius: 10px;
+    background: #142c22;
+    color: #dcfce7;
+    box-shadow: 0 8px 24px #0005;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+}
+
 .fbc-delete-dialog {
     box-sizing: border-box;
     width: min(520px, calc(100vw - 32px));
