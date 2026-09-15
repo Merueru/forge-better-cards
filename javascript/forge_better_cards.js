@@ -1259,6 +1259,22 @@
         visibleCardsForIdentity(identity).forEach((card) => card.remove());
     }
 
+    function showLoraDeleteSuccess(name, mode, metadataKept) {
+        let toast = document.querySelector(".fbc-delete-toast");
+        if (!toast) {
+            toast = document.createElement("div");
+            toast.className = "fbc-delete-toast";
+            toast.setAttribute("role", "status");
+            toast.setAttribute("aria-live", "polite");
+            document.body.append(toast);
+        }
+        clearTimeout(toast._fbcRemoveTimer);
+        const label = mode === "files" ? "Delete + files" : "Delete LoRA";
+        toast.textContent = `Deleted “${name}” — ${label} successful.` +
+            (mode === "files" && metadataKept ? " No metadata file removed." : "");
+        toast._fbcRemoveTimer = setTimeout(() => toast.remove(), 3500);
+    }
+
     function chooseLoraDeletion(name) {
         return new Promise((resolve) => {
             const dialog = document.createElement("dialog");
@@ -1277,7 +1293,7 @@
             dialog.append(title, details);
             for (const [mode, label, description] of [
                 ["model", "Delete LoRA", "Keep uploaded images and Forge metadata JSON."],
-                ["files", "Delete + files", "Also delete the matching Forge metadata JSON, unless another model shares it. Images are kept so existing cards and the data backup can still use them."],
+                ["files", "Delete + files", "Also delete matching metadata JSON and preview images beside the model, unless another model shares the same filename stem. Uploaded Better Cards images are kept for existing cards and the data backup."],
             ]) {
                 const option = document.createElement("div");
                 const action = makeButton(label);
@@ -1346,6 +1362,7 @@
             const close = globalFn("closePopup");
             if (close) close();
             refreshLoraCards(identity.tabname);
+            showLoraDeleteSuccess(identity.name, deleteMode, data.forge_metadata_kept);
         } finally {
             button.disabled = false;
             button.dataset.busy = "false";
