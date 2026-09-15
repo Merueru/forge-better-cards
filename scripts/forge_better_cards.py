@@ -687,11 +687,15 @@ def register_routes(demo, app: FastAPI):
                     for extension in LORA_EXTENSIONS
                 )
                 if not shared_stem:
-                    companion = stem + ".json"
-                    if os.path.isfile(companion):
-                        if os.path.islink(companion) or os.path.normcase(os.path.realpath(companion)) != os.path.normcase(os.path.abspath(companion)):
-                            raise ValueError("Cannot delete linked metadata")
-                        companion_paths.append(companion)
+                    suffixes = [".json"]
+                    for extension in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"):
+                        suffixes.extend((extension, ".preview" + extension))
+                    for suffix in suffixes:
+                        companion = stem + suffix
+                        if os.path.isfile(companion):
+                            if os.path.islink(companion) or os.path.normcase(os.path.realpath(companion)) != os.path.normcase(os.path.abspath(companion)):
+                                raise ValueError("Cannot delete linked companion files")
+                            companion_paths.append(companion)
             with _lock:
                 data = read_data()
                 actual_key = key if key in data.get("cards", {}) else ""
@@ -726,7 +730,7 @@ def register_routes(demo, app: FastAPI):
                 "name": name,
                 "better_cards_removed": changed,
                 "images_kept": True,
-                "forge_metadata_kept": not bool(companion_paths),
+                "forge_metadata_kept": not any(path.lower().endswith(".json") for path in companion_paths),
                 "updated_at": data.get("updated_at"),
             })
         except (FileNotFoundError, ValueError) as exc:
