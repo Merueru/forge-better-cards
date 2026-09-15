@@ -78,6 +78,7 @@ Click a preview image to open it larger.
   folder strip.
 - Records usage metadata for Last Used / Most Used style sorting.
 - Can seed initial sets from Card Master metadata when available.
+- Delete LoRA
 
 ## How To Use
 
