@@ -54,6 +54,13 @@ Click a preview image to open it larger.
 - Add or remove images from inside the lightbox.
 - Drag to pan when zoomed in.
 
+## Update 16/9/2026
+
+![Preview](imgs/bettercardimg015.png)
+
+- Add Delete LoRA button
+- Optimize preview images
+
 ## Features
 
 - Adds a `BC` button to Extra Networks cards.
