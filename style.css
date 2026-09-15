@@ -35,8 +35,16 @@
 .fbc-delete-dialog h3 { font-size: 20px; overflow-wrap: anywhere; }
 .fbc-delete-dialog p { margin: 8px 0 16px; font-size: 14px; line-height: 1.5; color: #cbd5e1; }
 .fbc-delete-dialog > div { margin: 16px 0; padding: 14px; border: 1px solid #475569; border-radius: 10px; }
-.fbc-delete-dialog button { padding: 8px 14px; border: 1px solid #64748b; border-radius: 8px; background: #1e293b; color: #f1f5f9; cursor: pointer; transition: background-color 160ms ease; }
+.fbc-delete-dialog button { padding: 8px 14px; border: 1px solid #64748b; border-radius: 8px; background: #1e293b; color: #f1f5f9; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
 .fbc-delete-dialog > div button:hover { background: #991b1b; }
+.fbc-delete-dialog > button:hover {
+    border-color: #93c5fd;
+    background: #334155;
+    color: #fff;
+    box-shadow: 0 4px 12px #0004;
+    transform: translateY(-1px);
+}
+.fbc-delete-dialog > button:active { background: #475569; transform: translateY(0); }
 .fbc-delete-dialog button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
 
 .fbc-page-host {
