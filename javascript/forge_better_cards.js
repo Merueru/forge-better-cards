@@ -77,9 +77,21 @@
         return JSON.parse(JSON.stringify(card || {}));
     }
 
+    function normalizeNativePreviewUrl(value) {
+        const raw = String(value || "").trim();
+        if (!raw) return "";
+        try {
+            const url = new URL(raw, window.location.href);
+            if (!/\/sd_extra_networks\/thumb$/i.test(url.pathname) || !url.searchParams.get("filename")) return raw;
+            return `${url.pathname}${url.search}${url.hash}`;
+        } catch (error) {
+            return raw;
+        }
+    }
+
     function normalizeSet(set) {
-        let images = Array.isArray(set && set.images) ? set.images.filter(Boolean).map(String) : [];
-        const legacyImage = set && set.image_url ? String(set.image_url) : "";
+        let images = Array.isArray(set && set.images) ? set.images.filter(Boolean).map(normalizeNativePreviewUrl) : [];
+        const legacyImage = set && set.image_url ? normalizeNativePreviewUrl(set.image_url) : "";
         if (legacyImage && !images.includes(legacyImage)) images.unshift(legacyImage);
         let activeImageIndex = Number(set && set.active_image_index);
         if (!Number.isFinite(activeImageIndex)) activeImageIndex = 0;
@@ -211,6 +223,7 @@
     }
 
     function cardPreviewSrc(src) {
+        src = normalizeNativePreviewUrl(src);
         if (!src || !src.includes("/forge-better-cards/image/")) return src;
         try {
             const url = new URL(src, window.location.href);
@@ -244,14 +257,14 @@
             try {
                 const parsed = new URL(url);
                 if (/\.(png|jpe?g|webp|gif)(?:$|[?#])/i.test(parsed.pathname)) return url;
-                if (/\/sd_extra_networks\/thumb$/i.test(parsed.pathname) && parsed.searchParams.get("filename")) return url;
+                if (/\/sd_extra_networks\/thumb$/i.test(parsed.pathname) && parsed.searchParams.get("filename")) return normalizeNativePreviewUrl(url);
                 if (/\/forge-better-cards\/image\/[^/?#]+\.(png|jpe?g|webp|gif)$/i.test(parsed.pathname)) return url;
             } catch (error) {
                 return "";
             }
             return "";
         }
-        if (/^\.?\/sd_extra_networks\/thumb\?/i.test(url)) return url;
+        if (/^\.?\/sd_extra_networks\/thumb\?/i.test(url)) return normalizeNativePreviewUrl(url);
         if (/^\/forge-better-cards\/image\/[^/?#]+\.(png|jpe?g|webp|gif)$/i.test(url)) return url;
         return "";
     }
