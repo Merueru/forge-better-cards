@@ -210,6 +210,19 @@
         img.src = nextSrc;
     }
 
+    function cardPreviewSrc(src) {
+        if (!src || !src.includes("/forge-better-cards/image/")) return src;
+        try {
+            const url = new URL(src, window.location.href);
+            if (!url.pathname.includes("/forge-better-cards/image/")) return src;
+            url.searchParams.set("size", "512");
+            return url.toString();
+        } catch (error) {
+            const separator = src.includes("?") ? "&" : "?";
+            return `${src}${separator}size=512`;
+        }
+    }
+
     function setPreviewImage(preview, img, src) {
         if (!preview || !img) return;
         preview._fbcProgrammaticSrc = src || "";
@@ -1228,6 +1241,167 @@
         }, true);
     }
 
+    function refreshLoraCards(tabname) {
+        const refresh = getApp().getElementById(`${tabname}_lora_extra_refresh_internal`);
+        if (refresh) refresh.dispatchEvent(new Event("click"));
+    }
+
+    function clearDeletedLoraState(identity, returnedKey) {
+        const keys = new Set([identity && identity.key, returnedKey].filter(Boolean));
+        keys.forEach((key) => {
+            clearTimeout(state.saveTimers.get(key));
+            state.saveTimers.delete(key);
+            state.saveVersions.set(key, Number(state.saveVersions.get(key) || 0) + 1);
+            state.saveChains.delete(key);
+            state.cards.delete(key);
+            if (state.index) delete state.index[key];
+        });
+        visibleCardsForIdentity(identity).forEach((card) => card.remove());
+    }
+
+    function chooseLoraDeletion(name) {
+        return new Promise((resolve) => {
+            const dialog = document.createElement("dialog");
+            dialog.className = "fbc-delete-dialog";
+            const title = document.createElement("h3");
+            title.id = "fbc-delete-dialog-title";
+            title.textContent = `Delete LoRA: ${name}`;
+            dialog.setAttribute("aria-labelledby", title.id);
+            const details = document.createElement("p");
+            details.textContent = "Both options permanently delete the model file, Better Cards sets and usage history. The data backup cannot restore the model file.";
+            const finish = (mode) => {
+                dialog.close();
+                dialog.remove();
+                resolve(mode);
+            };
+            dialog.append(title, details);
+            for (const [mode, label, description] of [
+                ["model", "Delete LoRA", "Keep uploaded images and Forge metadata JSON."],
+                ["files", "Delete + files", "Also delete the matching Forge metadata JSON, unless another model shares it. Images are kept so existing cards and the data backup can still use them."],
+            ]) {
+                const option = document.createElement("div");
+                const action = makeButton(label);
+                const help = document.createElement("p");
+                help.textContent = description;
+                action.addEventListener("click", () => finish(mode));
+                option.append(action, help);
+                dialog.append(option);
+            }
+            const cancel = makeButton("Cancel");
+            cancel.autofocus = true;
+            cancel.addEventListener("click", () => finish(null));
+            dialog.addEventListener("cancel", (event) => {
+                event.preventDefault();
+                finish(null);
+            });
+            dialog.append(cancel);
+            document.body.append(dialog);
+            dialog.showModal();
+        });
+    }
+
+    async function deleteLoraModel(editor, button, status) {
+        const identity = resolveIdentity(currentEditorIdentity(editor));
+        if (!identity || identity.page !== "lora" || !identity.name || !identity.sortPath) {
+            throw new Error("Could not resolve the current LoRA card. Refresh the LoRA list and try again.");
+        }
+
+        const deleteMode = await chooseLoraDeletion(identity.name);
+        if (!deleteMode) return;
+
+        button.disabled = true;
+        button.dataset.busy = "true";
+        status.textContent = "Preparing safe delete...";
+        status.dataset.error = "false";
+        clearTimeout(state.saveTimers.get(identity.key));
+        const pendingSave = state.saveChains.get(identity.key);
+        if (pendingSave) await pendingSave.catch(() => null);
+
+        status.textContent = "Deleting LoRA...";
+
+        try {
+            const response = await fetch(`${BASE}/lora`, {
+                method: "DELETE",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    key: identity.key,
+                    page: identity.page,
+                    name: identity.name,
+                    sort_path: identity.sortPath,
+                    sort_name: identity.sortName,
+                    delete_mode: deleteMode,
+                }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                if (data.model_deleted) {
+                    clearDeletedLoraState(identity, data.key);
+                    refreshLoraCards(identity.tabname);
+                }
+                throw new Error(data.error || "Could not delete the LoRA safely");
+            }
+
+            clearDeletedLoraState(identity, data.key);
+            await loadIndex(true);
+            const close = globalFn("closePopup");
+            if (close) close();
+            refreshLoraCards(identity.tabname);
+        } finally {
+            button.disabled = false;
+            button.dataset.busy = "false";
+        }
+    }
+
+    function attachLoraDeleteButton(editor) {
+        const identity = currentEditorIdentity(editor);
+        const existing = editor.querySelector(".fbc-delete-lora-row");
+        if (!identity || identity.page !== "lora") {
+            if (existing) existing.remove();
+            return;
+        }
+
+        const table = editor.querySelector("table.file-metadata");
+        if (!table) return;
+
+        let row = existing;
+        if (!row) {
+            row = document.createElement("div");
+            row.className = "fbc-delete-lora-row";
+            const button = makeIconButton(
+                '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg>',
+                "Delete LoRA…",
+            );
+            button.className = "fbc-delete-lora-button";
+            const status = document.createElement("span");
+            status.className = "fbc-delete-lora-status";
+            status.setAttribute("aria-live", "polite");
+            button.addEventListener("click", () => {
+                deleteLoraModel(editor, button, status).catch((error) => {
+                    console.warn("[ForgeBetterCards] LoRA delete failed", error);
+                    status.textContent = error.message || "LoRA delete failed.";
+                    status.dataset.error = "true";
+                });
+            });
+            row.append(button, status);
+        }
+
+        if (table.nextElementSibling !== row) table.insertAdjacentElement("afterend", row);
+    }
+
+    function setupLoraDeleteObserver(editor) {
+        if (editor._fbcLoraDeleteObserver) return;
+        let scheduled = false;
+        editor._fbcLoraDeleteObserver = new MutationObserver(() => {
+            if (scheduled) return;
+            scheduled = true;
+            queueMicrotask(() => {
+                scheduled = false;
+                attachLoraDeleteButton(editor);
+            });
+        });
+        editor._fbcLoraDeleteObserver.observe(editor, {childList: true, subtree: true});
+    }
+
     async function injectEditorPages() {
         await loadConfig();
         await loadIndex(false);
@@ -1269,6 +1443,8 @@
                 attachEditorListeners(editor, host);
                 attachPreviewUpload(editor, host);
                 attachNativeSaveBridge(editor, host);
+                setupLoraDeleteObserver(editor);
+                attachLoraDeleteButton(editor);
 
                 const set = selectedSet(card);
                 const activeSetId = set ? set.id : "";
@@ -1484,8 +1660,7 @@
         }
         updateCardSetLabel(card, (set && set.label) || data.selected_set_label || "", setCount);
         const nextSrc = (set && set.image_url) || data.selected_image_url || card.dataset.fbcOriginalPreview;
-        if (nextSrc) setImageSrc(img, nextSrc);
-        if (set) preloadAdjacentImages(set);
+        if (nextSrc) setImageSrc(img, cardPreviewSrc(nextSrc));
     }
 
     async function switchCardSet(event, card, delta) {
