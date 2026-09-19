@@ -410,8 +410,12 @@
 
             if (!card.sets.length) {
                 const preview = identity.card ? identity.card.querySelector("img.preview, img") : null;
+                const nativePrompt = identity.page === "lora" || identity.page === "lycoris"
+                    ? captureNativeCardPrompt(identity.card) : {positive: "", negative: ""};
                 const set = normalizeSet({
                     label: "Set 1",
+                    activation_text: nativePrompt.positive.replace(/<lora:[^>]+>/i, "").trimStart(),
+                    negative_prompt: nativePrompt.negative,
                     image_url: preview ? preview.src : "",
                     images: preview && preview.src ? [preview.src] : [],
                 });
@@ -1772,13 +1776,14 @@
         return `${tabname}:${negative ? "neg" : "pos"}:${identity.key}`;
     }
 
-    function captureNativeLoraToken(card) {
-        if (!card || typeof card.onclick !== "function" || typeof window.cardClicked !== "function") return "";
+    function captureNativeCardPrompt(card) {
+        const prompt = {positive: "", negative: ""};
+        if (!card || typeof card.onclick !== "function" || typeof window.cardClicked !== "function") return prompt;
 
         const nativeCardClicked = window.cardClicked;
-        let nativePrompt = "";
-        window.cardClicked = (_tabname, textToAdd) => {
-            nativePrompt = typeof textToAdd === "string" ? textToAdd : "";
+        window.cardClicked = (_tabname, textToAdd, textToAddNegative) => {
+            prompt.positive = typeof textToAdd === "string" ? textToAdd : "";
+            prompt.negative = typeof textToAddNegative === "string" ? textToAddNegative : "";
         };
 
         try {
@@ -1789,7 +1794,11 @@
             window.cardClicked = nativeCardClicked;
         }
 
-        const match = nativePrompt.match(/<lora:[^>]+>/i);
+        return prompt;
+    }
+
+    function captureNativeLoraToken(card) {
+        const match = captureNativeCardPrompt(card).positive.match(/<lora:[^>]+>/i);
         return match ? match[0] : "";
     }
 
