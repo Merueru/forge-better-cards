@@ -1725,6 +1725,7 @@
         if (event.target.closest("button, a, input, textarea, select, label, .button-row, .metadata-button, .edit-button, .copy-path-button")) return;
         const card = event.currentTarget;
         const identity = resolveIdentity(identityFromCard(card));
+        if (identity.page === "checkpoints") return;
 
         event.preventDefault();
         event.stopPropagation();
