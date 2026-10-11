@@ -863,11 +863,49 @@
         const controlled = [controls.activation, controls.negative, controls.notes].filter(Boolean);
         if (controlled.includes(active)) return false;
 
+        return editorValuesDiffer(editor, card);
+    }
+
+    function editorValuesDiffer(editor, card) {
+        const set = selectedSet(card);
+        if (!set) return false;
+        const controls = getEditorControls(editor);
         return (
             (controls.activation && controls.activation.value !== (set.activation_text || "")) ||
             (controls.negative && controls.negative.value !== (set.negative_prompt || "")) ||
             (controls.notes && controls.notes.value !== (set.notes || ""))
         );
+    }
+
+    function normalizeActivationTextAfterTagSelection(value) {
+        const tags = splitTags(value);
+        return tags.length ? `${tags.join(", ")},` : "";
+    }
+
+    function syncEditorChangesFromForm(editor, host, identity, card) {
+        const set = selectedSet(card);
+        if (!set || editor.dataset.fbcHydrating === "true") return false;
+        if (
+            host.dataset.renderedCardKey !== identity.key ||
+            host.dataset.renderedSetId !== set.id ||
+            host.dataset.renderedSetCount !== String(card.sets.length)
+        ) return false;
+
+        const controls = getEditorControls(editor);
+        if (
+            editor.dataset.fbcTagSelectionPending === "true" &&
+            controls.activation &&
+            controls.activation.value !== editor._fbcTagSelectionValueBefore
+        ) {
+            setFieldValue(controls.activation, normalizeActivationTextAfterTagSelection(controls.activation.value));
+            editor.dataset.fbcTagSelectionPending = "false";
+            delete editor._fbcTagSelectionValueBefore;
+        }
+
+        if (!editorValuesDiffer(editor, card)) return false;
+
+        collectEditorSet(editor, card);
+        return true;
     }
 
     function updateEditorPreview(editor, set) {
@@ -1099,6 +1137,32 @@
     function attachEditorListeners(editor, host) {
         if (editor.dataset.fbcListenersReady === "true") return;
         editor.dataset.fbcListenersReady = "true";
+
+        editor.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!target || !target.closest) return;
+            const tagLabel = Array.from(editor.querySelectorAll("label"))
+                .find((label) => labelText(label).includes("training dataset tags"));
+            if (!tagLabel || tagLabel.contains(target)) return;
+
+            let tagComponent = tagLabel.parentElement;
+            while (tagComponent && tagComponent !== editor && !tagComponent.contains(target)) {
+                tagComponent = tagComponent.parentElement;
+            }
+            if (!tagComponent || tagComponent === editor) return;
+
+            const activation = getEditorControls(editor).activation;
+            if (!activation) return;
+            const selectionToken = (editor._fbcTagSelectionToken || 0) + 1;
+            editor._fbcTagSelectionToken = selectionToken;
+            editor._fbcTagSelectionValueBefore = activation.value || "";
+            editor.dataset.fbcTagSelectionPending = "true";
+            setTimeout(() => {
+                if (editor._fbcTagSelectionToken !== selectionToken) return;
+                editor.dataset.fbcTagSelectionPending = "false";
+                delete editor._fbcTagSelectionValueBefore;
+            }, 2000);
+        }, true);
 
         editor.addEventListener("input", (event) => {
             if (editor.dataset.fbcHydrating === "true") return;
@@ -1479,6 +1543,12 @@
                 attachNativeSaveBridge(editor, host);
                 setupLoraDeleteObserver(editor);
                 attachLoraDeleteButton(editor);
+
+                if (syncEditorChangesFromForm(editor, host, identity, card)) {
+                    rememberCard(identity, card);
+                    updateVisibleCardFronts(identity, card);
+                    scheduleSave(identity, card, host);
+                }
 
                 const set = selectedSet(card);
                 const activeSetId = set ? set.id : "";
