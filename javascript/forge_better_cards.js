@@ -1795,14 +1795,22 @@
         if (event.target.closest("button, a, input, textarea, select, label, .button-row, .metadata-button, .edit-button, .copy-path-button")) return;
         const card = event.currentTarget;
         const identity = resolveIdentity(identityFromCard(card));
-        if (identity.page === "checkpoints") return;
+        if (identity.page !== "lora" && identity.page !== "lycoris") return;
 
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
 
+        let data;
         try {
-            const data = await getCardData(identity);
+            data = await getCardData(identity);
+        } catch (error) {
+            console.warn("[ForgeBetterCards] Could not load set; using native card click", error);
+            if (typeof card.onclick === "function") card.onclick.call(card, event);
+            return;
+        }
+
+        try {
             syncSelectedSetFromSurface(identity, card, data);
             const set = selectedSet(data);
             if (set) {
